@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Running Recovery Planner</title>
+  
+  <!-- 📈 VISITOR TRACKING: PASTE YOUR GOOGLE ANALYTICS CODE HERE -->
+  <!-- Example format below (Replace G-XXXXXXXXXX with your actual ID) -->
+  <!-- 
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-XXXXXXXXXX');
+  </script> 
+  -->
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            zinc: {
+              850: '#1f1f22',
+              950: '#09090b',
+            }
+          },
+          animation: {
+            'spin-slow': 'spin 3s linear infinite',
+            'fade-in': 'fadeIn 0.5s ease-out forwards',
+            'slide-up': 'slideUp 0.6s ease-out forwards',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            slideUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } }
+          }
+        }
+      }
+    }
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- React & ReactDOM (No Recharts to prevent CDN failures) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { background-color: #000; color: #fff; overscroll-behavior-y: none; font-family: 'Inter', sans-serif; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* Range Slider Custom Styling */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 24px;
+      width: 24px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+      margin-top: -8px;
+      box-shadow: 0 0 10px rgba(255,255,255,0.3);
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 8px;
+      cursor: pointer;
+      background: #27272a;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-zinc-800">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    const Icons = {
+      Activity: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>,
+      MapPin: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>,
+      Droplets: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7 6.3 7 6.3s-2.29 2.76-3.29 3.69C2.57 10.92 2 12.02 2 13.18 2 15.4 3.8 17.2 6 17.2Z"></path><path d="M12 15.2c1.7 0 3-1.4 3-3.1 0-.9-.4-1.8-1.3-2.5S12 7.2 12 7.2s-1.7 2.1-2.5 2.8C8.6 10.7 8 11.6 8 12.5c0 1.7 1.3 3.1 3 3.1Z"></path><path d="M17 19.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S17 9.3 17 9.3s-2.29 2.76-3.29 3.69C12.57 13.92 12 15.02 12 16.18c0 2.22 1.8 4.02 4 4.02Z"></path></svg>,
+      Flame: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>,
+      Zap: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>,
+      Thermometer: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"></path></svg>,
+      CloudRain: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 14v6"></path><path d="M8 14v6"></path><path d="M12 16v6"></path></svg>,
+      ChevronRight: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"></path></svg>,
+      ChevronDown: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"></path></svg>,
+      ChevronUp: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"></path></svg>,
+      ArrowLeft: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>,
+      Info: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>,
+      AlertCircle: ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+    };
+
+    const CustomDonutChart = ({ data, size = 180, strokeWidth = 24 }) => {
+      const radius = (size - strokeWidth) / 2;
+      const circumference = radius * 2 * Math.PI;
+      const total = data.reduce((sum, item) => sum + item.value, 0);
+      let currentOffset = 0;
+
+      return (
+        <svg width={size} height={size} className="transform -rotate-90 origin-center drop-shadow-xl">
+          {data.map((item, index) => {
+            if (item.value === 0) return null;
+            const strokeLength = (item.value / total) * circumference;
+            // Gap applied by slightly reducing strokeLength relative to circumference, creating visual padding
+            const paddedStrokeLength = Math.max(0, strokeLength - 4); 
+            const dashArray = `${paddedStrokeLength} ${circumference}`;
+            const dashOffset = -currentOffset;
+            currentOffset += strokeLength;
+            
+            return (
+              <circle
+                key={index}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={dashArray}
+                strokeDashoffset={dashOffset}
+                strokeLinecap="round"
+                className="transition-all duration-1000 ease-out hover:opacity-80 cursor-pointer"
+              />
+            );
+          })}
+        </svg>
+      );
+    };
+
+    const ZONES = [
+      { id: 1, name: 'Zone 1', label: 'Recovery', pace: 7, factor: 0.3, color: 'bg-zinc-500', desc: 'Very light effort, easy conversation.' },
+      { id: 2, name: 'Zone 2', label: 'Aerobic', pace: 6, factor: 0.5, color: 'bg-blue-500', desc: 'Comfortable effort, sentences.' },
+      { id: 3, name: 'Zone 3', label: 'Tempo', pace: 5, factor: 0.75, color: 'bg-green-500', desc: 'Moderate effort, short phrases.' },
+      { id: 4, name: 'Zone 4', label: 'Threshold', pace: 4.5, factor: 0.9, color: 'bg-orange-500', desc: 'Hard effort, few words.' },
+      { id: 5, name: 'Zone 5', label: 'Maximum', pace: 4, factor: 1.0, color: 'bg-red-500', desc: 'All-out, breathing heavily.' }
+    ];
+
+    // Premium colours for electrolyte visual distinction
+    const ELECTROLYTE_COLORS = {
+      sodium: '#3b82f6',   // Bright Blue
+      chloride: '#14b8a6', // Teal
+      potassium: '#f97316',// Vibrant Orange
+      magnesium: '#a855f7' // Purple
+    };
+
+    function App() {
+      const [step, setStep] = useState('input');
+      const [weight, setWeight] = useState(70);
+      const [distance, setDistance] = useState(10);
+      const [zone, setZone] = useState(2);
+      const [activeTab, setActiveTab] = useState('LOSS');
+      
+      const [weatherData, setWeatherData] = useState(null);
+      const [results, setResults] = useState(null);
+      const [loadingText, setLoadingText] = useState('');
+      const [geoFallback, setGeoFallback] = useState(false);
+      const [showMethodology, setShowMethodology] = useState(false);
+
+      const calculateMetrics = (weather) => {
+        const selectedZone = ZONES.find(z => z.id === zone);
+        const durationHrs = (distance * selectedZone.pace) / 60;
+        
+        // 1. Carbohydrates
+        const carbsBurnedAvg = (weight * distance * selectedZone.factor) / 4;
+        const carbsBurnedMin = Math.round(carbsBurnedAvg * 0.9);
+        const carbsBurnedMax = Math.round(carbsBurnedAvg * 1.1);
+        
+        // Target 30-50% for safe initial glycogen resynthesis
+        const carbsNeedMinRaw = carbsBurnedAvg * 0.3;
+        let carbsNeedMaxRaw = carbsBurnedAvg * 0.5;
+        const maxCarbCap = 1.2 * weight; // Safe cap per hour of recovery (GI distress limit)
+        if (carbsNeedMaxRaw > maxCarbCap) carbsNeedMaxRaw = maxCarbCap;
+
+        // 2. Fluid / Sweat Loss Estimate
+        const { temp, humidity, apparentTemp } = weather;
+        const effectiveTemp = apparentTemp || temp;
+        
+        let tempModifier = 1.0;
+        if (effectiveTemp < 15) tempModifier = 0.85;
+        else if (effectiveTemp > 25) tempModifier = 1.25;
+        else if (effectiveTemp > 30) tempModifier = 1.4;
+        
+        if (humidity > 70) tempModifier *= 1.1;
+
+        let baseSweatRate = 0.8;
+        if (zone === 3) baseSweatRate = 1.0;
+        if (zone >= 4) baseSweatRate = 1.2;
+
+        const avgFluidLossLiters = durationHrs * baseSweatRate * tempModifier;
+        const fluidLossMin = Math.max(0.1, (avgFluidLossLiters * 0.85));
+        const fluidLossMax = (avgFluidLossLiters * 1.15);
+
+        // 3. Electrolytes (Avg concentrations per Liter - ACSM)
+        const sodiumAvg = avgFluidLossLiters * 900;
+        const sodiumMin = Math.round(fluidLossMin * 700);
+        const sodiumMax = Math.round(fluidLossMax * 1100);
+        
+        const chlorideAvg = Math.round(avgFluidLossLiters * 700);
+        const potassiumAvg = Math.round(avgFluidLossLiters * 200);
+        const magnesiumAvg = Math.round(avgFluidLossLiters * 20);
+
+        // 4. OSMO Recommendations (CRITICAL LOGIC)
+        // Profile per scoop: Na: 400mg, K: 250mg, Cl: 288mg, Mg: 100mg
+        // Goal: Replace ~50-80% of Sodium safely.
+        const targetNaMin = sodiumAvg * 0.5;
+        const targetNaMax = sodiumAvg * 0.8;
+
+        let rawScoopsMin = targetNaMin / 400;
+        let rawScoopsMax = targetNaMax / 400;
+
+        // Apply strict physiological limits based on Magnesium (to prevent GI distress)
+        // More than ~350mg of Mg at once can cause severe laxative effects during recovery.
+        let scoopReason = "Calculated across your full electrolyte profile (Na, K, Mg, Cl) to ensure balanced recovery.";
+        
+        if (rawScoopsMax > 3.5) {
+            rawScoopsMax = 3.5;
+            if (rawScoopsMin > 3.5) rawScoopsMin = 3.5;
+            scoopReason = "Capped at 3.5 scoops to prevent magnesium overload and GI distress. Seek additional sodium from solid food (e.g., salty snacks).";
+        }
+
+        const osmoMin = Math.max(0.5, Math.floor(rawScoopsMin * 2) / 2);
+        const osmoMax = Math.max(0.5, Math.ceil(rawScoopsMax * 2) / 2);
+
+        // 5. Dehydration Strain (Visual Index)
+        const weightLossPercent = (avgFluidLossLiters / weight) * 100;
+        let dehydrationIndex = Math.round(weightLossPercent * 2.5); 
+        if (dehydrationIndex < 1) dehydrationIndex = 1;
+        if (dehydrationIndex > 10) dehydrationIndex = 10;
+
+        let strainStatus = 'Mild hydration strain';
+        if (dehydrationIndex >= 4 && dehydrationIndex <= 6) strainStatus = 'Moderate hydration strain';
+        if (dehydrationIndex > 6) strainStatus = 'High hydration strain';
+
+        setResults({
+          carbsBurnedMin, carbsBurnedMax,
+          carbsNeedMin: Math.round(carbsNeedMinRaw), carbsNeedMax: Math.round(carbsNeedMaxRaw),
+          fluidLossMin: fluidLossMin.toFixed(1), fluidLossMax: fluidLossMax.toFixed(1),
+          sodiumMin, sodiumMax, sodiumAvg,
+          potassiumAvg, chlorideAvg, magnesiumAvg,
+          osmoMin, osmoMax, scoopReason,
+          dehydrationIndex, strainStatus,
+          avgFluidLossLiters
+        });
+      };
+
+      const fetchLocationAndWeather = async () => {
+        setStep('loading');
+        
+        let fetchedData = { 
+          temp: 28, humidity: 75, apparentTemp: 31, rain: 0, wind: 10,
+          city: 'Unknown Location', lat: 28.4595, lon: 77.0266, 
+          timestamp: new Date().toISOString()
+        };
+
+        const getPosition = () => {
+          return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) reject(new Error('Geolocation not supported'));
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
+          });
+        };
+
+        try {
+          const position = await getPosition();
+          fetchedData.lat = position.coords.latitude;
+          fetchedData.lon = position.coords.longitude;
+
+          // Open-Meteo current conditions API for accurate real-time data
+          const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${fetchedData.lat}&longitude=${fetchedData.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&timezone=auto`;
+          const weatherRes = await fetch(weatherUrl);
+          if (weatherRes.ok) {
+            const wData = await weatherRes.json();
+            fetchedData.temp = wData.current.temperature_2m;
+            fetchedData.humidity = wData.current.relative_humidity_2m;
+            fetchedData.apparentTemp = wData.current.apparent_temperature;
+            fetchedData.rain = wData.current.precipitation;
+            fetchedData.wind = wData.current.wind_speed_10m;
+            fetchedData.timestamp = wData.current.time;
+          }
+
+          const geoUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${fetchedData.lat}&longitude=${fetchedData.lon}&localityLanguage=en`;
+          const geoRes = await fetch(geoUrl);
+          if (geoRes.ok) {
+            const gData = await geoRes.json();
+            fetchedData.city = gData.city || gData.locality || 'Local Area';
+          }
+        } catch (err) {
+          console.warn("Using fallback environment data.", err);
+          setGeoFallback(true);
+        }
+
+        setWeatherData(fetchedData);
+        calculateMetrics(fetchedData);
+
+        let contextMsg = `That's a solid session. Let's see what it demanded from you.`;
+        if (fetchedData.apparentTemp > 30) contextMsg = `Heavy running in the heat. Your fluid demands will be high.`;
+        else if (fetchedData.rain > 0) contextMsg = `Braving the rain changes your sweat evaporation rate.`;
+        else if (distance > 20) contextMsg = `Serious distance. Calculating your physiological costs.`;
+        
+        setLoadingText(contextMsg);
+        setTimeout(() => setStep('results'), 3500);
+      };
+
+      const renderInput = () => (
+        <div className="flex flex-col h-full animate-fade-in pb-10 md:justify-center">
+          <div className="space-y-2 mt-4 md:mt-0 mb-10 text-center md:text-left">
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-white">Fuel & Hydration</h1>
+            <p className="text-zinc-400 text-sm md:text-base lg:text-lg max-w-xl">Calculate your post-run recovery needs based on real-time environmental data.</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 flex-grow">
+            <div className="space-y-6">
+              {/* Weight Slider */}
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-[32px] p-6 lg:p-8 space-y-6 backdrop-blur-xl shadow-2xl">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg md:text-xl font-medium text-zinc-200">Your weight</h2>
+                  <span className="text-3xl md:text-4xl font-semibold text-white">{weight} <span className="text-base text-zinc-500 font-medium">kg</span></span>
+                </div>
+                <div className="relative pt-2">
+                  <input type="range" min="55" max="100" value={weight} onChange={(e) => setWeight(Number(e.target.value))} className="w-full" />
+                </div>
+                <div className="flex justify-between text-xs md:text-sm text-zinc-500 font-medium px-1"><span>55 kg</span><span>100 kg</span></div>
+              </div>
+
+              {/* Distance Slider */}
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-[32px] p-6 lg:p-8 space-y-6 backdrop-blur-xl shadow-2xl">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg md:text-xl font-medium text-zinc-200">Run distance</h2>
+                  <span className="text-3xl md:text-4xl font-semibold text-white">{distance} <span className="text-base text-zinc-500 font-medium">km</span></span>
+                </div>
+                <div className="relative pt-2">
+                  <input type="range" min="1" max="50" step="0.5" value={distance} onChange={(e) => setDistance(Number(e.target.value))} className="w-full" />
+                </div>
+                <div className="flex justify-between text-xs md:text-sm text-zinc-500 font-medium px-1"><span>1 km</span><span>50 km</span></div>
+              </div>
+            </div>
+
+            {/* Intensity Selector */}
+            <div className="space-y-4 bg-zinc-900/40 p-6 lg:p-8 rounded-[32px] border border-zinc-800/50 flex flex-col justify-center">
+              <h2 className="text-lg md:text-xl font-medium text-zinc-200 mb-2 px-2">How hard did you run?</h2>
+              <div className="grid gap-3">
+                {ZONES.map((z) => (
+                  <button key={z.id} onClick={() => setZone(z.id)} className={`flex flex-col items-start p-4 lg:p-5 rounded-2xl border transition-all duration-300 text-left ${zone === z.id ? 'border-white bg-zinc-800/90 shadow-lg transform scale-[1.01]' : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800/60'}`}>
+                    <div className="flex items-center space-x-3 w-full">
+                      <span className={`w-3 h-3 rounded-full ${z.color}`}></span>
+                      <span className="font-semibold text-white text-base">{z.name}</span>
+                      <span className="text-zinc-400 text-sm flex-1 text-right">{z.label}</span>
+                    </div>
+                    <span className="text-zinc-500 text-xs md:text-sm mt-2 ml-6 block">{z.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-10 lg:mt-12 max-w-md mx-auto w-full lg:max-w-none lg:w-1/2 lg:mx-0">
+            <button onClick={fetchLocationAndWeather} className="w-full bg-white text-black font-bold text-lg md:text-xl py-5 md:py-6 rounded-[28px] hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 shadow-xl shadow-white/10">
+              <span>Calculate Recovery</span>
+              <Icons.ChevronRight className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+      );
+
+      const renderLoading = () => (
+        <div className="flex flex-col items-center justify-center h-full text-center space-y-8 animate-fade-in min-h-[60vh] lg:min-h-[80vh]">
+          <div className="relative">
+            <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full animate-pulse"></div>
+            <Icons.Activity className="w-20 h-20 text-white animate-pulse relative z-10" />
+          </div>
+          <div className="space-y-6 w-full">
+            <h2 className="text-3xl font-medium text-white tracking-tight">Analysing your run...</h2>
+            {weatherData && (
+              <div className="inline-flex flex-col items-center space-y-4 p-6 lg:p-8 rounded-[32px] bg-zinc-900/60 border border-zinc-800 w-full max-w-md mx-auto backdrop-blur-xl">
+                <div className="flex items-center space-x-3 text-zinc-200 font-medium text-xl">
+                  <Icons.MapPin className="w-6 h-6 text-blue-400" />
+                  <span>{distance} km · {weatherData.city}</span>
+                </div>
+                <div className="flex flex-wrap justify-center items-center gap-3 text-sm md:text-base text-zinc-300 border-t border-zinc-800/80 pt-5 w-full">
+                  <span className="flex items-center bg-zinc-800/80 px-4 py-2 rounded-xl"><Icons.Thermometer className="w-4 h-4 mr-2 text-orange-400"/> {weatherData.temp}°C</span>
+                  <span className="flex items-center bg-zinc-800/80 px-4 py-2 rounded-xl"><Icons.CloudRain className="w-4 h-4 mr-2 text-blue-400"/> {weatherData.humidity}% hum</span>
+                  <span className="flex items-center bg-zinc-800/80 px-4 py-2 rounded-xl text-white font-semibold">Z{zone}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="text-zinc-400 max-w-[320px] text-sm md:text-base animate-slide-up leading-relaxed">{loadingText}</p>
+        </div>
+      );
+
+      const renderLossTab = () => {
+        const donutData = [
+          { name: 'Sodium', value: results.sodiumAvg, color: ELECTROLYTE_COLORS.sodium },
+          { name: 'Chloride', value: results.chlorideAvg, color: ELECTROLYTE_COLORS.chloride },
+          { name: 'Potassium', value: results.potassiumAvg, color: ELECTROLYTE_COLORS.potassium },
+          { name: 'Magnesium', value: results.magnesiumAvg, color: ELECTROLYTE_COLORS.magnesium },
+        ];
+
+        return (
+          <div className="space-y-6 md:space-y-8 animate-fade-in h-full">
+            <div className="text-center md:text-left mb-8">
+              <h3 className="text-3xl md:text-4xl font-bold text-white tracking-tight">WHAT YOU LOST</h3>
+              <p className="text-zinc-500 text-xs md:text-sm mt-2 max-w-xl leading-relaxed">
+                Your estimated losses are based on body weight, intensity, duration, and local environmental conditions. Ranges reflect natural individual sweat variability.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+              <div className="bg-zinc-900/70 border border-zinc-800 rounded-[32px] p-6 lg:p-8 flex items-center justify-between shadow-lg">
+                <div className="flex items-center space-x-4 lg:space-x-6">
+                  <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full bg-blue-500/10 flex items-center justify-center"><Icons.Droplets className="w-7 h-7 lg:w-8 lg:h-8 text-blue-500" /></div>
+                  <div><p className="text-zinc-200 text-base lg:text-lg font-semibold">Water</p><p className="text-xs lg:text-sm text-zinc-500">Estimated fluid lost</p></div>
+                </div>
+                <div className="text-right"><span className="text-3xl lg:text-4xl font-bold">~{results.fluidLossMin}-{results.fluidLossMax} <span className="text-lg lg:text-xl text-zinc-500 font-medium">L</span></span></div>
+              </div>
+
+              <div className="bg-zinc-900/70 border border-zinc-800 rounded-[32px] p-6 lg:p-8 flex items-center justify-between shadow-lg">
+                <div className="flex items-center space-x-4 lg:space-x-6">
+                  <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full bg-orange-500/10 flex items-center justify-center"><Icons.Flame className="w-7 h-7 lg:w-8 lg:h-8 text-orange-500" /></div>
+                  <div><p className="text-zinc-200 text-base lg:text-lg font-semibold">Carbohydrates</p><p className="text-xs lg:text-sm text-zinc-500">Estimated utilisation</p></div>
+                </div>
+                <div className="text-right"><span className="text-3xl lg:text-4xl font-bold">~{results.carbsBurnedMin}-{results.carbsBurnedMax} <span className="text-lg lg:text-xl text-zinc-500 font-medium">g</span></span></div>
+              </div>
+            </div>
+
+            <div className="bg-zinc-900/70 border border-zinc-800 rounded-[32px] p-6 md:p-8 lg:p-10 space-y-8 shadow-lg">
+              <div className="flex items-center space-x-3 text-zinc-400 pb-4 border-b border-zinc-800/80">
+                <Icons.Zap className="w-5 h-5 text-yellow-500" />
+                <span className="text-xs lg:text-sm font-bold tracking-widest uppercase">Electrolyte Loss</span>
+              </div>
+              
+              <div className="flex flex-col md:flex-row items-center gap-10 lg:gap-16">
+                <div className="relative flex justify-center shrink-0">
+                  <CustomDonutChart data={donutData} size={window.innerWidth < 768 ? 160 : 200} strokeWidth={window.innerWidth < 768 ? 20 : 24} />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <Icons.Zap className="w-8 h-8 text-zinc-600" />
+                  </div>
+                </div>
+
+                <div className="w-full space-y-4 lg:space-y-5 flex-1">
+                  <div className="flex justify-between items-center bg-zinc-800/40 p-3 lg:p-4 rounded-2xl">
+                    <div className="flex items-center space-x-3"><span className="w-3 h-3 rounded-full" style={{backgroundColor: ELECTROLYTE_COLORS.sodium}}></span><span className="text-zinc-100 font-medium text-sm lg:text-base">Sodium</span></div>
+                    <span className="font-bold text-white text-base lg:text-lg">~{results.sodiumMin}-{results.sodiumMax} <span className="text-xs lg:text-sm text-zinc-500 font-normal">mg</span></span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 px-3 lg:px-4">
+                    <div className="flex items-center space-x-3"><span className="w-3 h-3 rounded-full" style={{backgroundColor: ELECTROLYTE_COLORS.chloride}}></span><span className="text-zinc-400 text-sm lg:text-base">Chloride</span></div>
+                    <span className="text-zinc-300 font-medium text-sm lg:text-base">~{results.chlorideAvg} <span className="text-xs text-zinc-500">mg</span></span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 px-3 lg:px-4">
+                    <div className="flex items-center space-x-3"><span className="w-3 h-3 rounded-full" style={{backgroundColor: ELECTROLYTE_COLORS.potassium}}></span><span className="text-zinc-400 text-sm lg:text-base">Potassium</span></div>
+                    <span className="text-zinc-300 font-medium text-sm lg:text-base">~{results.potassiumAvg} <span className="text-xs text-zinc-500">mg</span></span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 px-3 lg:px-4">
+                    <div className="flex items-center space-x-3"><span className="w-3 h-3 rounded-full" style={{backgroundColor: ELECTROLYTE_COLORS.magnesium}}></span><span className="text-zinc-400 text-sm lg:text-base">Magnesium</span></div>
+                    <span className="text-zinc-300 font-medium text-sm lg:text-base">~{results.magnesiumAvg} <span className="text-xs text-zinc-500">mg</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const renderNeedTab = () => (
+        <div className="space-y-6 md:space-y-8 animate-fade-in h-full flex flex-col">
+          <div className="text-center md:text-left mb-4 md:mb-6">
+            <h3 className="text-3xl md:text-4xl font-bold text-white tracking-tight">WHAT YOU NEED</h3>
+            <p className="text-zinc-500 text-xs md:text-sm mt-2 max-w-xl leading-relaxed">
+              Recommended replenishment to initiate safe recovery.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 flex-1">
+            <div className="bg-zinc-900/70 border border-zinc-800 rounded-[32px] p-8 lg:p-10 flex flex-col justify-center relative overflow-hidden h-full shadow-lg">
+              <div className="absolute right-0 top-0 w-48 h-48 bg-blue-500/10 rounded-full blur-[60px] pointer-events-none"></div>
+              <h4 className="text-xs lg:text-sm font-bold tracking-widest text-blue-400 uppercase mb-6 z-10">OSMO Electrolytes</h4>
+              <div className="flex items-baseline space-x-3 mb-6 z-10">
+                <span className="text-7xl lg:text-8xl font-bold text-white tracking-tighter">
+                  {results.osmoMin === results.osmoMax ? results.osmoMin : `${results.osmoMin}-${results.osmoMax}`}
+                </span>
+                <span className="text-xl lg:text-2xl font-medium text-zinc-500">SCOOPS</span>
+              </div>
+              <p className="text-zinc-400 text-sm lg:text-base leading-relaxed z-10 max-w-sm">{results.scoopReason}</p>
+            </div>
+
+            <div className="bg-zinc-900/70 border border-zinc-800 rounded-[32px] p-8 lg:p-10 flex flex-col justify-center relative overflow-hidden h-full shadow-lg">
+              <div className="absolute right-0 bottom-0 w-48 h-48 bg-orange-500/10 rounded-full blur-[60px] pointer-events-none"></div>
+              <h4 className="text-xs lg:text-sm font-bold tracking-widest text-orange-400 uppercase mb-6 z-10">Carbohydrates</h4>
+              <div className="flex items-baseline space-x-3 mb-6 z-10">
+                <span className="text-6xl lg:text-7xl font-bold text-white tracking-tighter">{results.carbsNeedMin}–{results.carbsNeedMax}</span>
+                <span className="text-xl lg:text-2xl font-medium text-zinc-500">g</span>
+              </div>
+              <p className="text-zinc-400 text-sm lg:text-base leading-relaxed z-10 max-w-sm">Targeted post-run intake (30-50% of utilized) to safely initiate glycogen resynthesis without overloading digestion.</p>
+            </div>
+          </div>
+        </div>
+      );
+
+      const renderDehydrationTab = () => {
+        const radius = window.innerWidth < 768 ? 90 : 120;
+        const circumference = 2 * Math.PI * radius;
+        const strokeDashoffset = circumference - (circumference * (results.dehydrationIndex / 10));
+        let color = '#3b82f6'; 
+        if (results.dehydrationIndex >= 4) color = '#eab308'; 
+        if (results.dehydrationIndex > 6) color = '#ef4444'; 
+
+        const svgSize = radius * 2 + 40;
+
+        return (
+          <div className="animate-fade-in flex flex-col items-center justify-center py-8 lg:py-12">
+            <div className="text-center w-full mb-10">
+              <h3 className="text-3xl md:text-4xl font-bold text-white tracking-tight">DEHYDRATION STRAIN</h3>
+            </div>
+
+            <div className="relative flex items-center justify-center mb-10" style={{ width: svgSize, height: svgSize }}>
+              <div className="absolute inset-0 rounded-full blur-[60px] opacity-20" style={{ backgroundColor: color }}></div>
+              <svg width={svgSize} height={svgSize} className="transform -rotate-90 relative z-10 origin-center drop-shadow-2xl">
+                <circle cx={svgSize/2} cy={svgSize/2} r={radius} fill="none" stroke="#27272a" strokeWidth="16" />
+                <circle cx={svgSize/2} cy={svgSize/2} r={radius} fill="none" stroke={color} strokeWidth="16" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
+                <span className="text-7xl lg:text-8xl font-bold text-white tracking-tighter">+{results.dehydrationIndex}</span>
+              </div>
+            </div>
+
+            <div className="w-full max-w-md lg:max-w-lg px-6 space-y-8 text-center">
+              <div className="flex items-center justify-between text-xs lg:text-sm font-bold text-zinc-500 tracking-widest px-2">
+                <span>LOW</span>
+                <div className="flex-1 mx-6 h-1 bg-zinc-800 rounded-full relative">
+                   <div className="absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full shadow-lg border-2 border-black" style={{ left: `${(results.dehydrationIndex / 10) * 100}%`, transform: 'translate(-50%, -50%)', backgroundColor: color }}></div>
+                </div>
+                <span>HIGH</span>
+              </div>
+              <h4 className="text-2xl lg:text-3xl font-semibold text-white tracking-wide">{results.strainStatus}</h4>
+              <div className="bg-zinc-900/60 p-5 rounded-2xl border border-zinc-800 text-left flex items-start space-x-4">
+                <Icons.Info className="w-6 h-6 text-zinc-500 shrink-0 mt-0.5" />
+                <p className="text-zinc-400 text-sm lg:text-base leading-relaxed">
+                  Your Dehydration Strain reflects the estimated hydration load from this run, based on fluid loss, duration, intensity, and environmental conditions. It is a visual index, not a medical measurement.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const renderResults = () => (
+        <div className="flex flex-col h-full animate-fade-in overflow-y-auto scrollbar-hide pb-16 w-full lg:max-w-5xl lg:mx-auto">
+          {/* Header Summary */}
+          <div className="flex items-center justify-between mb-8 md:mb-10 sticky top-0 bg-black/95 backdrop-blur-xl z-30 py-4 px-2 -mx-2 border-b border-zinc-900">
+            <button onClick={() => {setStep('input'); setActiveTab('LOSS');}} className="p-3 text-zinc-400 hover:text-white transition-colors bg-zinc-900/80 hover:bg-zinc-800 rounded-full">
+              <Icons.ArrowLeft className="w-6 h-6" />
+            </button>
+            <div className="flex-1 text-center px-4">
+              <h2 className="text-[10px] md:text-xs font-bold tracking-widest text-zinc-500 uppercase mb-1">Your Run</h2>
+              <p className="text-sm md:text-base lg:text-lg font-medium text-zinc-200 truncate">
+                {distance}km · Z{zone} · {weatherData.city} · {weatherData.temp}°C
+              </p>
+            </div>
+            <div className="w-12"></div>
+          </div>
+
+          {/* Custom Tabs */}
+          <div className="flex p-1.5 bg-zinc-900/80 backdrop-blur-md rounded-2xl mb-10 w-full shadow-lg max-w-xl mx-auto">
+            {['LOSS', 'NEED', 'DEHYDRATION STRAIN'].map((tab) => (
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-3.5 px-2 text-[10px] md:text-xs lg:text-sm font-bold tracking-widest rounded-xl transition-all duration-300 ${activeTab === tab ? 'bg-zinc-800 text-white shadow-md transform scale-[1.02]' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                {tab === 'DEHYDRATION STRAIN' ? (window.innerWidth < 400 ? 'STRAIN' : 'DEHYDRATION STRAIN') : tab}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-grow min-h-[450px]">
+            {activeTab === 'LOSS' && renderLossTab()}
+            {activeTab === 'NEED' && renderNeedTab()}
+            {activeTab === 'DEHYDRATION STRAIN' && renderDehydrationTab()}
+          </div>
+
+          {/* Methodology Footer */}
+          <div className="mt-16 border border-zinc-800 rounded-[24px] bg-zinc-900/30 overflow-hidden max-w-3xl mx-auto w-full">
+            <button onClick={() => setShowMethodology(!showMethodology)} className="w-full flex items-center justify-between p-6 hover:bg-zinc-900/50 transition-colors">
+              <div className="flex items-center space-x-3 text-zinc-300">
+                <Icons.Info className="w-5 h-5" />
+                <span className="text-xs md:text-sm font-semibold uppercase tracking-wider">How we calculated this</span>
+              </div>
+              {showMethodology ? <Icons.ChevronUp className="w-5 h-5 text-zinc-500" /> : <Icons.ChevronDown className="w-5 h-5 text-zinc-500" />}
+            </button>
+            
+            {showMethodology && (
+              <div className="p-6 space-y-6 text-sm text-zinc-400 border-t border-zinc-800 bg-zinc-950/50 animate-fade-in">
+                {geoFallback && (
+                  <div className="flex items-start space-x-3 text-yellow-500 bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20">
+                    <Icons.AlertCircle className="w-6 h-6 shrink-0" />
+                    <p>Location access was denied or unavailable. Using fallback environmental data for calculations.</p>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <h5 className="font-semibold text-zinc-200 mb-4 text-base">Location & Time Data</h5>
+                    <p><span className="text-zinc-500 inline-block w-28">Method:</span> Browser Geolocation API</p>
+                    <p><span className="text-zinc-500 inline-block w-28">Coordinates:</span> {weatherData.lat.toFixed(4)}, {weatherData.lon.toFixed(4)}</p>
+                    <p><span className="text-zinc-500 inline-block w-28">Time:</span> {new Date(weatherData.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                    <p><span className="text-zinc-500 inline-block w-28">Source:</span> Open-Meteo (Real-time)</p>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h5 className="font-semibold text-zinc-200 mb-4 text-base">Environmental Variables</h5>
+                    <p><span className="text-zinc-500 inline-block w-36">Temperature:</span> {weatherData.temp}°C</p>
+                    <p><span className="text-zinc-500 inline-block w-36">Apparent Temp:</span> {weatherData.apparentTemp}°C</p>
+                    <p><span className="text-zinc-500 inline-block w-36">Relative Humidity:</span> {weatherData.humidity}%</p>
+                    <p><span className="text-zinc-500 inline-block w-36">Wind Speed:</span> {weatherData.wind} km/h</p>
+                  </div>
+                </div>
+
+                <div className="pt-5 border-t border-zinc-800/60 mt-4 text-xs leading-relaxed text-zinc-500">
+                  <strong>Scientific Methodology:</strong> Calculations use established ACSM physiological guidelines factoring body weight, exercise duration, intensity, and local environmental stress. Because individual sweat rate and sweat sodium concentration vary significantly, values are presented as estimated ranges rather than false precision numbers. The OSMO recommendation caps magnesium intake to prevent gastrointestinal distress.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white selection:bg-zinc-800 flex justify-center w-full relative">
+          <div className="w-full max-w-7xl min-h-screen flex flex-col px-4 py-6 md:p-8 lg:p-12 relative z-10">
+            {step === 'input' && renderInput()}
+            {step === 'loading' && renderLoading()}
+            {step === 'results' && renderResults()}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
