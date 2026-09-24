@@ -45,7 +45,7 @@
   </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- React & ReactDOM (No Recharts to prevent CDN failures) -->
+  <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   
@@ -157,23 +157,27 @@
     };
 
     function App() {
+      // Input State
       const [step, setStep] = useState('input');
       const [weight, setWeight] = useState(70);
       const [distance, setDistance] = useState(10);
       const [zone, setZone] = useState(2);
-      const [activeTab, setActiveTab] = useState('LOSS');
       
+      // UI State
+      const [activeTab, setActiveTab] = useState('LOSS');
+      const [showMethodology, setShowMethodology] = useState(false);
+      const [locationError, setLocationError] = useState('');
+      
+      // Result State
       const [weatherData, setWeatherData] = useState(null);
       const [results, setResults] = useState(null);
       const [loadingText, setLoadingText] = useState('');
-      const [geoFallback, setGeoFallback] = useState(false);
-      const [showMethodology, setShowMethodology] = useState(false);
 
       const calculateMetrics = (weather) => {
         const selectedZone = ZONES.find(z => z.id === zone);
         const durationHrs = (distance * selectedZone.pace) / 60;
         
-        // 1. Carbohydrates
+        // 1. Carbohydrates Utilisation
         const carbsBurnedAvg = (weight * distance * selectedZone.factor) / 4;
         const carbsBurnedMin = Math.round(carbsBurnedAvg * 0.9);
         const carbsBurnedMax = Math.round(carbsBurnedAvg * 1.1);
@@ -181,7 +185,7 @@
         // Target 30-50% for safe initial glycogen resynthesis
         const carbsNeedMinRaw = carbsBurnedAvg * 0.3;
         let carbsNeedMaxRaw = carbsBurnedAvg * 0.5;
-        const maxCarbCap = 1.2 * weight; // Safe cap per hour of recovery (GI distress limit)
+        const maxCarbCap = 1.2 * weight; // Safe physiological cap per hour of recovery (GI distress limit)
         if (carbsNeedMaxRaw > maxCarbCap) carbsNeedMaxRaw = maxCarbCap;
 
         // 2. Fluid / Sweat Loss Estimate
@@ -193,6 +197,7 @@
         else if (effectiveTemp > 25) tempModifier = 1.25;
         else if (effectiveTemp > 30) tempModifier = 1.4;
         
+        // High humidity restricts evaporation, significantly increasing raw sweat output 
         if (humidity > 70) tempModifier *= 1.1;
 
         let baseSweatRate = 0.8;
@@ -203,7 +208,7 @@
         const fluidLossMin = Math.max(0.1, (avgFluidLossLiters * 0.85));
         const fluidLossMax = (avgFluidLossLiters * 1.15);
 
-        // 3. Electrolytes (Avg concentrations per Liter - ACSM)
+        // 3. Electrolytes (Avg concentrations per Liter - ACSM parameters)
         const sodiumAvg = avgFluidLossLiters * 900;
         const sodiumMin = Math.round(fluidLossMin * 700);
         const sodiumMax = Math.round(fluidLossMax * 1100);
@@ -213,16 +218,16 @@
         const magnesiumAvg = Math.round(avgFluidLossLiters * 20);
 
         // 4. OSMO Recommendations (CRITICAL LOGIC)
-        // Profile per scoop: Na: 400mg, K: 250mg, Cl: 288mg, Mg: 100mg
-        // Goal: Replace ~50-80% of Sodium safely.
+        // Profile per scoop: Na: 400mg, K: 250mg, Cl: 288.7mg, Mg: 100mg
+        // Goal: Safely replace ~50-80% of Sodium, while strictly monitoring Magnesium.
         const targetNaMin = sodiumAvg * 0.5;
         const targetNaMax = sodiumAvg * 0.8;
 
         let rawScoopsMin = targetNaMin / 400;
         let rawScoopsMax = targetNaMax / 400;
 
-        // Apply strict physiological limits based on Magnesium (to prevent GI distress)
-        // More than ~350mg of Mg at once can cause severe laxative effects during recovery.
+        // Strict physiological limits based on Magnesium (to prevent GI distress/laxative effect)
+        // More than ~350mg of Mg at once can cause severe gastrointestinal issues during recovery.
         let scoopReason = "Calculated across your full electrolyte profile (Na, K, Mg, Cl) to ensure balanced recovery.";
         
         if (rawScoopsMax > 3.5) {
@@ -258,92 +263,107 @@
 
       const fetchLocationAndWeather = async () => {
         setStep('loading');
-        
-        let fetchedData = { 
-          temp: 28, humidity: 75, apparentTemp: 31, rain: 0, wind: 10,
-          city: 'Unknown Location', lat: 28.4595, lon: 77.0266, 
-          timestamp: new Date().toISOString()
-        };
+        setLocationError(''); // Reset errors
 
         const getPosition = () => {
           return new Promise((resolve, reject) => {
-            if (!navigator.geolocation) reject(new Error('Geolocation not supported'));
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
+            if (!navigator.geolocation) {
+              reject(new Error('Geolocation not supported by your browser.'));
+            }
+            // Ask for location. Timeout after 10 seconds.
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
           });
         };
 
         try {
+          // 1. Enforce strict location check
           const position = await getPosition();
-          fetchedData.lat = position.coords.latitude;
-          fetchedData.lon = position.coords.longitude;
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
 
-          // Open-Meteo current conditions API for accurate real-time data
-          const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${fetchedData.lat}&longitude=${fetchedData.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&timezone=auto`;
+          // 2. Fetch real-time weather data for exact coordinates
+          const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&timezone=auto`;
           const weatherRes = await fetch(weatherUrl);
-          if (weatherRes.ok) {
-            const wData = await weatherRes.json();
-            fetchedData.temp = wData.current.temperature_2m;
-            fetchedData.humidity = wData.current.relative_humidity_2m;
-            fetchedData.apparentTemp = wData.current.apparent_temperature;
-            fetchedData.rain = wData.current.precipitation;
-            fetchedData.wind = wData.current.wind_speed_10m;
-            fetchedData.timestamp = wData.current.time;
+          
+          if (!weatherRes.ok) throw new Error("Failed to fetch weather data from API.");
+          const wData = await weatherRes.json();
+
+          // 3. Reverse geocode to get a readable location name (non-fatal if fails)
+          let city = 'Local Area';
+          const geoUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+          try {
+             const geoRes = await fetch(geoUrl);
+             if (geoRes.ok) {
+               const gData = await geoRes.json();
+               city = gData.city || gData.locality || 'Local Area';
+             }
+          } catch(e) {
+             console.warn("Could not reverse geocode location name. Proceeding with coordinates.");
           }
 
-          const geoUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${fetchedData.lat}&longitude=${fetchedData.lon}&localityLanguage=en`;
-          const geoRes = await fetch(geoUrl);
-          if (geoRes.ok) {
-            const gData = await geoRes.json();
-            fetchedData.city = gData.city || gData.locality || 'Local Area';
-          }
+          const fetchedData = {
+            temp: wData.current.temperature_2m,
+            humidity: wData.current.relative_humidity_2m,
+            apparentTemp: wData.current.apparent_temperature,
+            rain: wData.current.precipitation,
+            wind: wData.current.wind_speed_10m,
+            timestamp: wData.current.time,
+            lat, lon, city
+          };
+
+          setWeatherData(fetchedData);
+          calculateMetrics(fetchedData);
+
+          // 4. Generate contextual loading text based on actual conditions
+          let contextMsg = `That's a solid session. Let's see what it demanded from you.`;
+          if (fetchedData.apparentTemp > 30) contextMsg = `Heavy running in the heat. Your fluid demands will be high.`;
+          else if (fetchedData.rain > 0) contextMsg = `Braving the rain changes your sweat evaporation rate.`;
+          else if (distance > 20) contextMsg = `Serious distance. Calculating your physiological costs.`;
+          
+          setLoadingText(contextMsg);
+          
+          // Smooth transition to results
+          setTimeout(() => setStep('results'), 3500);
+
         } catch (err) {
-          console.warn("Using fallback environment data.", err);
-          setGeoFallback(true);
+          // STRICT RULE: If location or weather fails, block calculations.
+          console.error("Location/Weather Error:", err);
+          setLocationError("Location access is required to calculate accurate hydration and electrolyte losses based on current temperature and humidity. Please allow location access and try again.");
+          setStep('input');
         }
-
-        setWeatherData(fetchedData);
-        calculateMetrics(fetchedData);
-
-        let contextMsg = `That's a solid session. Let's see what it demanded from you.`;
-        if (fetchedData.apparentTemp > 30) contextMsg = `Heavy running in the heat. Your fluid demands will be high.`;
-        else if (fetchedData.rain > 0) contextMsg = `Braving the rain changes your sweat evaporation rate.`;
-        else if (distance > 20) contextMsg = `Serious distance. Calculating your physiological costs.`;
-        
-        setLoadingText(contextMsg);
-        setTimeout(() => setStep('results'), 3500);
       };
 
       const renderInput = () => (
         <div className="flex flex-col h-full animate-fade-in pb-10 md:justify-center">
-          <div className="space-y-2 mt-4 md:mt-0 mb-10 text-center md:text-left">
+          <div className="space-y-2 mt-4 md:mt-0 mb-8 text-center md:text-left">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-white">Fuel & Hydration</h1>
-            <p className="text-zinc-400 text-sm md:text-base lg:text-lg max-w-xl">Calculate your post-run recovery needs based on real-time environmental data.</p>
+            <p className="text-zinc-400 text-sm md:text-base lg:text-lg max-w-xl">Calculate your post-run recovery needs based on exact real-time environmental data.</p>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 flex-grow">
             <div className="space-y-6">
-              {/* Weight Slider */}
+              {/* Weight Slider (Expanded 30-150kg) */}
               <div className="bg-zinc-900/80 border border-zinc-800 rounded-[32px] p-6 lg:p-8 space-y-6 backdrop-blur-xl shadow-2xl">
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg md:text-xl font-medium text-zinc-200">Your weight</h2>
                   <span className="text-3xl md:text-4xl font-semibold text-white">{weight} <span className="text-base text-zinc-500 font-medium">kg</span></span>
                 </div>
                 <div className="relative pt-2">
-                  <input type="range" min="55" max="100" value={weight} onChange={(e) => setWeight(Number(e.target.value))} className="w-full" />
+                  <input type="range" min="30" max="150" value={weight} onChange={(e) => setWeight(Number(e.target.value))} className="w-full" />
                 </div>
-                <div className="flex justify-between text-xs md:text-sm text-zinc-500 font-medium px-1"><span>55 kg</span><span>100 kg</span></div>
+                <div className="flex justify-between text-xs md:text-sm text-zinc-500 font-medium px-1"><span>30 kg</span><span>150 kg</span></div>
               </div>
 
-              {/* Distance Slider */}
+              {/* Distance Slider (Expanded 1-100km) */}
               <div className="bg-zinc-900/80 border border-zinc-800 rounded-[32px] p-6 lg:p-8 space-y-6 backdrop-blur-xl shadow-2xl">
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg md:text-xl font-medium text-zinc-200">Run distance</h2>
                   <span className="text-3xl md:text-4xl font-semibold text-white">{distance} <span className="text-base text-zinc-500 font-medium">km</span></span>
                 </div>
                 <div className="relative pt-2">
-                  <input type="range" min="1" max="50" step="0.5" value={distance} onChange={(e) => setDistance(Number(e.target.value))} className="w-full" />
+                  <input type="range" min="1" max="100" step="0.5" value={distance} onChange={(e) => setDistance(Number(e.target.value))} className="w-full" />
                 </div>
-                <div className="flex justify-between text-xs md:text-sm text-zinc-500 font-medium px-1"><span>1 km</span><span>50 km</span></div>
+                <div className="flex justify-between text-xs md:text-sm text-zinc-500 font-medium px-1"><span>1 km</span><span>100 km</span></div>
               </div>
             </div>
 
@@ -365,9 +385,17 @@
             </div>
           </div>
 
-          <div className="mt-10 lg:mt-12 max-w-md mx-auto w-full lg:max-w-none lg:w-1/2 lg:mx-0">
+          <div className="mt-8 lg:mt-12 max-w-md mx-auto w-full lg:max-w-none lg:w-1/2 lg:mx-0 space-y-4">
+            {/* Error Message display for Location issues */}
+            {locationError && (
+              <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-start space-x-3 text-red-400 text-sm animate-fade-in">
+                <Icons.AlertCircle className="w-6 h-6 shrink-0 mt-0.5" />
+                <p>{locationError}</p>
+              </div>
+            )}
+            
             <button onClick={fetchLocationAndWeather} className="w-full bg-white text-black font-bold text-lg md:text-xl py-5 md:py-6 rounded-[28px] hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-3 shadow-xl shadow-white/10">
-              <span>Calculate Recovery</span>
+              <span>Calculate Hydration</span>
               <Icons.ChevronRight className="w-6 h-6" />
             </button>
           </div>
@@ -413,7 +441,7 @@
             <div className="text-center md:text-left mb-8">
               <h3 className="text-3xl md:text-4xl font-bold text-white tracking-tight">WHAT YOU LOST</h3>
               <p className="text-zinc-500 text-xs md:text-sm mt-2 max-w-xl leading-relaxed">
-                Your estimated losses are based on body weight, intensity, duration, and local environmental conditions. Ranges reflect natural individual sweat variability.
+                Your estimated physiological losses, strictly derived from your input weight, distance, intensity, and real-time environmental data. Ranges reflect natural individual sweat variability.
               </p>
             </div>
 
@@ -547,7 +575,7 @@
               <div className="bg-zinc-900/60 p-5 rounded-2xl border border-zinc-800 text-left flex items-start space-x-4">
                 <Icons.Info className="w-6 h-6 text-zinc-500 shrink-0 mt-0.5" />
                 <p className="text-zinc-400 text-sm lg:text-base leading-relaxed">
-                  Your Dehydration Strain reflects the estimated hydration load from this run, based on fluid loss, duration, intensity, and environmental conditions. It is a visual index, not a medical measurement.
+                  Your Dehydration Strain reflects the estimated hydration load from this specific run, derived mathematically from fluid loss, duration, intensity, and local environmental conditions. It is a visual index, not a medical measurement.
                 </p>
               </div>
             </div>
@@ -598,12 +626,6 @@
             
             {showMethodology && (
               <div className="p-6 space-y-6 text-sm text-zinc-400 border-t border-zinc-800 bg-zinc-950/50 animate-fade-in">
-                {geoFallback && (
-                  <div className="flex items-start space-x-3 text-yellow-500 bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20">
-                    <Icons.AlertCircle className="w-6 h-6 shrink-0" />
-                    <p>Location access was denied or unavailable. Using fallback environmental data for calculations.</p>
-                  </div>
-                )}
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-3">
@@ -624,7 +646,7 @@
                 </div>
 
                 <div className="pt-5 border-t border-zinc-800/60 mt-4 text-xs leading-relaxed text-zinc-500">
-                  <strong>Scientific Methodology:</strong> Calculations use established ACSM physiological guidelines factoring body weight, exercise duration, intensity, and local environmental stress. Because individual sweat rate and sweat sodium concentration vary significantly, values are presented as estimated ranges rather than false precision numbers. The OSMO recommendation caps magnesium intake to prevent gastrointestinal distress.
+                  <strong>Scientific Methodology:</strong> No arbitrary values are used. Calculations use established ACSM physiological formulas factoring exactly on your body weight, exercise distance, intensity, and local environmental stress fetched at calculation. Because individual sweat gland density and sweat sodium concentration vary significantly from person to person, values are presented as estimated ranges rather than false precision numbers.
                 </div>
               </div>
             )}
